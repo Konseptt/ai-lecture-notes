@@ -75,10 +75,18 @@ export interface Lecture {
   date: string;
   duration: number;
   tags: string[];
-  audioBlob?: Blob;
+  audioPath?: string | null;
   transcript?: TranscriptData;
   summary?: SummaryData;
   notes?: NotesData;
   status: "recording" | "transcribed" | "summarizing" | "generating_notes" | "complete" | "error";
   errorMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
 }

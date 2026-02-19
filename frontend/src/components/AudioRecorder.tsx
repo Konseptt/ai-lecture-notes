@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mic, Square, Pause, Play, Save, X, FileText, AlertTriangle } from "lucide-react";
-import { saveLecture } from "../lib/storage";
+import { createLecture, uploadAudio } from "../lib/api";
 import type { Lecture, TranscriptSegment } from "../lib/types";
 
 function formatTime(seconds: number): string {
@@ -287,27 +287,30 @@ export default function AudioRecorder() {
     if (!audioBlob) return;
     setSaving(true);
 
-    const lecture: Lecture = {
-      id: crypto.randomUUID(),
-      title: title.trim() || `Lecture ${new Date().toLocaleDateString()}`,
-      course: course.trim(),
-      date: new Date().toISOString(),
-      duration: Math.round(elapsed),
-      tags: tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      audioBlob,
-      transcript: {
-        transcript: liveText,
-        segments: segmentsRef.current,
-      },
-      status: "transcribed",
-    };
+    try {
+      const lecture = await createLecture({
+        title: title.trim() || `Lecture ${new Date().toLocaleDateString()}`,
+        course: course.trim(),
+        date: new Date().toISOString(),
+        duration: Math.round(elapsed),
+        tags: tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+        transcript: {
+          transcript: liveText,
+          segments: segmentsRef.current,
+        },
+        status: "transcribed",
+      });
 
-    await saveLecture(lecture);
-    setSaving(false);
-    navigate(`/lecture/${lecture.id}`);
+      await uploadAudio(lecture.id, audioBlob);
+      navigate(`/lecture/${lecture.id}`);
+    } catch (err: any) {
+      alert(err.message || "Failed to save recording");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const barCount = 32;

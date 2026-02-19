@@ -1,4 +1,5 @@
 import os
+import uuid
 import time
 import logging
 from pathlib import Path
@@ -6,13 +7,21 @@ from contextlib import asynccontextmanager
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.gemini_service import GeminiService
+from db import create_tables, get_db
+from models import User, Lecture
+from auth import get_current_user
+from routes.auth import router as auth_router
+from routes.lectures import router as lectures_router
+from routes.audio import router as audio_router
 
 load_dotenv()
 logger = logging.getLogger("lecture-api")
@@ -33,6 +42,10 @@ async def lifespan(app: FastAPI):
     if not token:
         raise RuntimeError("GITHUB_TOKEN not set. Get one at github.com/settings/tokens")
     ai_service = GeminiService(token)
+
+    await create_tables()
+    logger.info("Database tables created / verified")
+
     yield
 
 
@@ -49,13 +62,18 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if is_production else allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+app.include_router(auth_router)
+app.include_router(lectures_router)
+app.include_router(audio_router)
 
 
 class TranscriptRequest(BaseModel):
     transcript: str
+    lecture_id: str | None = None
 
     @field_validator("transcript")
     @classmethod
@@ -92,10 +110,28 @@ async def health():
 
 
 @app.post("/api/summarize")
-async def summarize(req: TranscriptRequest, request: Request):
+async def summarize(
+    req: TranscriptRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     _check_rate_limit(request.client.host if request.client else "unknown")
     try:
-        return await ai_service.summarize(req.transcript)
+        result = await ai_service.summarize(req.transcript)
+
+        if req.lecture_id:
+            stmt = select(Lecture).where(
+                Lecture.id == uuid.UUID(req.lecture_id),
+                Lecture.user_id == user.id,
+            )
+            lec = (await db.execute(stmt)).scalar_one_or_none()
+            if lec:
+                lec.summary = result
+                lec.status = "summarizing"
+                await db.commit()
+
+        return result
     except HTTPException:
         raise
     except Exception as exc:
@@ -104,10 +140,28 @@ async def summarize(req: TranscriptRequest, request: Request):
 
 
 @app.post("/api/notes")
-async def generate_notes(req: TranscriptRequest, request: Request):
+async def generate_notes(
+    req: TranscriptRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     _check_rate_limit(request.client.host if request.client else "unknown")
     try:
-        return await ai_service.generate_notes(req.transcript)
+        result = await ai_service.generate_notes(req.transcript)
+
+        if req.lecture_id:
+            stmt = select(Lecture).where(
+                Lecture.id == uuid.UUID(req.lecture_id),
+                Lecture.user_id == user.id,
+            )
+            lec = (await db.execute(stmt)).scalar_one_or_none()
+            if lec:
+                lec.notes = result
+                lec.status = "complete"
+                await db.commit()
+
+        return result
     except HTTPException:
         raise
     except Exception as exc:

@@ -6,8 +6,6 @@ const DB_VERSION = 1;
 const STORE_LECTURES = "lectures";
 const STORE_AUDIO = "audio";
 
-interface LectureMeta extends Omit<Lecture, "audioBlob"> {}
-
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function getDB() {
@@ -28,34 +26,31 @@ function getDB() {
   return dbPromise;
 }
 
-export async function saveLecture(lecture: Lecture): Promise<void> {
+export async function saveLectureLocal(lecture: Lecture, audioBlob?: Blob): Promise<void> {
   const db = await getDB();
-  const { audioBlob, ...meta } = lecture;
   const tx = db.transaction([STORE_LECTURES, STORE_AUDIO], "readwrite");
-  await tx.objectStore(STORE_LECTURES).put(meta);
+  await tx.objectStore(STORE_LECTURES).put(lecture);
   if (audioBlob) {
     await tx.objectStore(STORE_AUDIO).put(audioBlob, lecture.id);
   }
   await tx.done;
 }
 
-export async function getLecture(id: string): Promise<Lecture | undefined> {
+export async function getLectureLocal(id: string): Promise<(Lecture & { audioBlob?: Blob }) | undefined> {
   const db = await getDB();
-  const meta: LectureMeta | undefined = await db.get(STORE_LECTURES, id);
+  const meta: Lecture | undefined = await db.get(STORE_LECTURES, id);
   if (!meta) return undefined;
   const audioBlob: Blob | undefined = await db.get(STORE_AUDIO, id);
-  return { ...meta, audioBlob } as Lecture;
+  return { ...meta, audioBlob };
 }
 
-export async function getAllLectures(): Promise<Lecture[]> {
+export async function getAllLecturesLocal(): Promise<Lecture[]> {
   const db = await getDB();
-  const metas: LectureMeta[] = await db.getAll(STORE_LECTURES);
-  return metas
-    .map((m) => ({ ...m } as Lecture))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const metas: Lecture[] = await db.getAll(STORE_LECTURES);
+  return metas.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
-export async function deleteLecture(id: string): Promise<void> {
+export async function deleteLectureLocal(id: string): Promise<void> {
   const db = await getDB();
   const tx = db.transaction([STORE_LECTURES, STORE_AUDIO], "readwrite");
   await tx.objectStore(STORE_LECTURES).delete(id);
@@ -63,16 +58,10 @@ export async function deleteLecture(id: string): Promise<void> {
   await tx.done;
 }
 
-export async function updateLecture(id: string, updates: Partial<Lecture>): Promise<void> {
+export async function updateLectureLocal(id: string, updates: Partial<Lecture>): Promise<void> {
   const db = await getDB();
-  const existing: LectureMeta | undefined = await db.get(STORE_LECTURES, id);
+  const existing: Lecture | undefined = await db.get(STORE_LECTURES, id);
   if (!existing) return;
-  const { audioBlob, ...metaUpdates } = updates;
-  const merged = { ...existing, ...metaUpdates };
-  const tx = db.transaction([STORE_LECTURES, STORE_AUDIO], "readwrite");
-  await tx.objectStore(STORE_LECTURES).put(merged);
-  if (audioBlob) {
-    await tx.objectStore(STORE_AUDIO).put(audioBlob, id);
-  }
-  await tx.done;
+  const merged = { ...existing, ...updates };
+  await db.put(STORE_LECTURES, merged);
 }

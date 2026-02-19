@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Play, Pause } from "lucide-react";
 
 interface Props {
-  audioBlob?: Blob;
+  audioUrl?: string;
   onTimeUpdate?: (time: number) => void;
   seekTo?: number | null;
 }
@@ -18,21 +18,12 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) {
+export default function AudioPlayer({ audioUrl, onTimeUpdate, seekTo }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
-  const [audioUrl, setAudioUrl] = useState<string>("");
-
-  useEffect(() => {
-    if (audioBlob) {
-      const url = URL.createObjectURL(audioBlob);
-      setAudioUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [audioBlob]);
 
   useEffect(() => {
     if (seekTo != null && audioRef.current) {
@@ -67,6 +58,11 @@ export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) 
     audioRef.current.currentTime = ((e.clientX - rect.left) / rect.width) * duration;
   }
 
+  const token = localStorage.getItem("lecturai_token");
+  const srcUrl = audioUrl && token
+    ? `${audioUrl}${audioUrl.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
+    : audioUrl;
+
   if (!audioUrl) {
     return <div className="py-4 text-sm text-neutral-400 text-center">No audio available</div>;
   }
@@ -77,7 +73,7 @@ export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) 
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4" style={{ background: "var(--surface)" }}>
       <audio
         ref={audioRef}
-        src={audioUrl}
+        src={srcUrl}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={() => {
           if (!audioRef.current) return;

@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, FileText, Zap, BookOpen, Loader2, AlertCircle, Sparkles } from "lucide-react";
-import { getLecture, updateLecture } from "../lib/storage";
-import { summarizeTranscript, generateNotes } from "../lib/api";
+import { fetchLecture, updateLectureAPI, summarizeTranscript, generateNotes, getAudioUrl } from "../lib/api";
 import type { Lecture } from "../lib/types";
 import AudioPlayer from "./AudioPlayer";
 import TranscriptPanel from "./TranscriptPanel";
@@ -25,7 +24,7 @@ export default function LectureView() {
 
   useEffect(() => {
     if (!id) return;
-    getLecture(id).then((l) => { if (l) setLecture(l); else navigate("/"); });
+    fetchLecture(id).then((l) => setLecture(l)).catch(() => navigate("/"));
   }, [id, navigate]);
 
   useEffect(() => {
@@ -44,21 +43,19 @@ export default function LectureView() {
     setError("");
     try {
       setProcessingStep("Generating summaries...");
-      await updateLecture(lecture.id, { status: "summarizing" });
+      await updateLectureAPI(lecture.id, { status: "summarizing" });
       setLecture((l) => l && { ...l, status: "summarizing" });
 
-      const summary = await summarizeTranscript(lecture.transcript.transcript);
-      await updateLecture(lecture.id, { summary, status: "generating_notes" });
+      const summary = await summarizeTranscript(lecture.transcript.transcript, lecture.id);
       setLecture((l) => l && { ...l, summary, status: "generating_notes" });
 
       setProcessingStep("Creating notes...");
-      const notes = await generateNotes(lecture.transcript.transcript);
-      await updateLecture(lecture.id, { notes, status: "complete" });
+      const notes = await generateNotes(lecture.transcript.transcript, lecture.id);
       setLecture((l) => l && { ...l, notes, status: "complete" });
     } catch (err: any) {
       const msg = err?.message || "Something went wrong";
       setError(msg);
-      await updateLecture(lecture.id, { status: "error", errorMessage: msg });
+      await updateLectureAPI(lecture.id, { status: "error", error_message: msg } as any);
       setLecture((l) => l && { ...l, status: "error", errorMessage: msg });
     } finally {
       setProcessing(false);
@@ -128,7 +125,7 @@ export default function LectureView() {
 
       {/* Audio player */}
       <div className="mb-6">
-        <AudioPlayer audioBlob={lecture.audioBlob} seekTo={seekTime} onTimeUpdate={() => {}} />
+        <AudioPlayer audioUrl={lecture.audioPath ? getAudioUrl(lecture.id) : undefined} seekTo={seekTime} onTimeUpdate={() => {}} />
       </div>
 
       {/* Generate button */}

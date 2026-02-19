@@ -1,11 +1,17 @@
-import { Routes, Route, NavLink, useLocation } from "react-router-dom";
+import { Routes, Route, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, LogOut } from "lucide-react";
+import { AuthProvider, useAuth } from "./lib/auth";
+import ProtectedRoute from "./components/ProtectedRoute";
+import LoginPage from "./components/LoginPage";
+import SignupPage from "./components/SignupPage";
 import LectureList from "./components/LectureList";
 import AudioRecorder from "./components/AudioRecorder";
 import LectureView from "./components/LectureView";
 
-export default function App() {
+function AppShell() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [dark, setDark] = useState(() =>
     typeof window !== "undefined" && localStorage.getItem("theme") === "dark"
   );
@@ -16,15 +22,25 @@ export default function App() {
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
 
-  const isRecord = location.pathname === "/record";
+  function handleLogout() {
+    logout();
+    navigate("/login");
+  }
+
+  if (location.pathname === "/login" || location.pathname === "/signup") {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+      </Routes>
+    );
+  }
 
   return (
     <div className="min-h-screen">
-      {/* Top nav - simple, like a real app */}
       <header className="sticky top-0 z-50 border-b border-neutral-200 dark:border-neutral-800" style={{ background: "var(--bg)" }}>
         <div className="max-w-4xl mx-auto px-5 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            {/* Logo - just text, confident */}
             <NavLink to="/" className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
                 <span className="text-white text-xs font-extrabold">L</span>
@@ -61,30 +77,52 @@ export default function App() {
             </nav>
           </div>
 
-          <button
-            onClick={() => setDark(!dark)}
-            className="w-8 h-8 rounded-md flex items-center justify-center text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-          >
-            {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center gap-2">
+            {user && (
+              <span className="text-xs text-neutral-400 hidden sm:block mr-1">{user.name || user.email}</span>
+            )}
+            <button
+              onClick={() => setDark(!dark)}
+              className="w-8 h-8 rounded-md flex items-center justify-center text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            >
+              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            {user && (
+              <button
+                onClick={handleLogout}
+                className="w-8 h-8 rounded-md flex items-center justify-center text-neutral-400 hover:text-red-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* Content */}
       <main className="max-w-4xl mx-auto px-5 py-8">
         <Routes>
-          <Route path="/" element={<LectureList />} />
-          <Route path="/record" element={<AudioRecorder />} />
-          <Route path="/lecture/:id" element={<LectureView />} />
+          <Route path="/" element={<ProtectedRoute><LectureList /></ProtectedRoute>} />
+          <Route path="/record" element={<ProtectedRoute><AudioRecorder /></ProtectedRoute>} />
+          <Route path="/lecture/:id" element={<ProtectedRoute><LectureView /></ProtectedRoute>} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
         </Routes>
       </main>
 
-      {/* Footer - tiny, human touch */}
       <footer className="max-w-4xl mx-auto px-5 pb-8">
         <p className="text-[11px] text-neutral-400 dark:text-neutral-600">
           built for students who hate taking notes
         </p>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

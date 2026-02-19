@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Trash2, Clock, Loader2 } from "lucide-react";
-import { getAllLectures, deleteLecture } from "../lib/storage";
+import { fetchLectures, deleteLectureAPI } from "../lib/api";
 import type { Lecture } from "../lib/types";
 
 function formatDuration(seconds: number): string {
@@ -38,14 +38,16 @@ export default function LectureList() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getAllLectures().then((all) => { setLectures(all); setLoading(false); });
+    fetchLectures()
+      .then((all) => { setLectures(all); setLoading(false); })
+      .catch(() => setLoading(false));
   }, []);
 
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (!confirm("Delete this lecture?")) return;
-    await deleteLecture(id);
+    await deleteLectureAPI(id);
     setLectures((prev) => prev.filter((l) => l.id !== id));
   }
 

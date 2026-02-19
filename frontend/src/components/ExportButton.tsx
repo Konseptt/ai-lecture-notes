@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Download, FileText, FileDown, Music } from "lucide-react";
+import { Download } from "lucide-react";
 import { jsPDF } from "jspdf";
+import { getAudioUrl } from "../lib/api";
 import type { Lecture } from "../lib/types";
-import { getLecture } from "../lib/storage";
 
 interface Props {
   lecture: Lecture;
@@ -86,11 +86,17 @@ export default function ExportButton({ lecture }: Props) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  async function downloadAudio() {
-    const full = await getLecture(lecture.id);
-    if (full?.audioBlob) downloadBlob(full.audioBlob, `${sanitize(lecture.title)}.webm`);
+  function downloadAudio() {
+    const token = localStorage.getItem("lecturai_token");
+    const url = getAudioUrl(lecture.id);
+    const fullUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+    const a = document.createElement("a");
+    a.href = fullUrl;
+    a.download = `${sanitize(lecture.title)}.webm`;
+    a.click();
     setOpen(false);
   }
+
   function downloadTxt(content: string, suffix: string) {
     downloadBlob(new Blob([content], { type: "text/plain" }), `${sanitize(lecture.title)}_${suffix}.txt`);
     setOpen(false);
@@ -110,26 +116,30 @@ export default function ExportButton({ lecture }: Props) {
         <div className="absolute right-0 top-full mt-2 w-48 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg z-50 py-1 overflow-hidden" style={{ background: "var(--surface)" }}>
           {lecture.transcript && (
             <button onClick={() => downloadTxt(buildTranscriptText(lecture), "transcript")} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              📄 Transcript
+              Transcript
             </button>
           )}
           {lecture.summary && (
             <button onClick={() => downloadTxt(buildSummaryText(lecture), "summary")} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              ⚡ Summary
+              Summary
             </button>
           )}
           {lecture.notes && (
             <button onClick={() => downloadTxt(buildNotesText(lecture), "notes")} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              📝 Notes
+              Notes
             </button>
           )}
           <button onClick={() => { exportPDF(lecture); setOpen(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-            📑 Full PDF
+            Full PDF
           </button>
-          <hr className="my-1 border-neutral-100 dark:border-neutral-800" />
-          <button onClick={downloadAudio} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-            🎵 Audio
-          </button>
+          {lecture.audioPath && (
+            <>
+              <hr className="my-1 border-neutral-100 dark:border-neutral-800" />
+              <button onClick={downloadAudio} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+                Audio
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
