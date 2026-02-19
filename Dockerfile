@@ -1,11 +1,11 @@
-FROM node:20-slim AS frontend-build
+FROM node:22-slim AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm install
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 WORKDIR /app
 
 COPY backend/requirements.txt ./

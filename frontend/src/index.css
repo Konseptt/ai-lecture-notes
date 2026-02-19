@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
@@ -25,15 +25,28 @@
   }
 }
 
-@layer utilities {
-  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
-  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-neutral-300 dark:bg-neutral-700 rounded-full; }
+@utility scrollbar-thin {
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    @apply bg-neutral-300 dark:bg-neutral-700 rounded-full;
+  }
+}
 
-  .accent { color: var(--accent); }
-  .bg-accent { background: var(--accent); }
-  .bg-accent-light { background: var(--accent-light); }
-  .border-accent { border-color: var(--accent); }
+@utility accent {
+  color: var(--accent);
+}
+
+@utility bg-accent {
+  background: var(--accent);
+}
+
+@utility bg-accent-light {
+  background: var(--accent-light);
+}
+
+@utility border-accent {
+  border-color: var(--accent);
 }
 
 ::selection {

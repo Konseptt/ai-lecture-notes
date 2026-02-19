@@ -24,6 +24,6 @@ services:
       - key: ENV
         value: "production"
       - key: PYTHON_VERSION
-        value: "3.11"
+        value: "3.13"
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
