@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2 } from "lucide-react";
+import { Play, Pause } from "lucide-react";
 
 interface Props {
   audioBlob?: Blob;
@@ -49,11 +49,8 @@ export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) 
 
   function togglePlay() {
     if (!audioRef.current) return;
-    if (playing) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
+    if (playing) audioRef.current.pause();
+    else audioRef.current.play();
     setPlaying(!playing);
   }
 
@@ -64,31 +61,20 @@ export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) 
     if (audioRef.current) audioRef.current.playbackRate = next;
   }
 
-  function skip(seconds: number) {
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.max(0, Math.min(duration, audioRef.current.currentTime + seconds));
-    }
-  }
-
   function seek(e: React.MouseEvent<HTMLDivElement>) {
     if (!audioRef.current || duration === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    audioRef.current.currentTime = pct * duration;
+    audioRef.current.currentTime = ((e.clientX - rect.left) / rect.width) * duration;
   }
 
   if (!audioUrl) {
-    return (
-      <div className="flex items-center justify-center py-6 text-sm text-gray-400 dark:text-gray-600">
-        No audio available
-      </div>
-    );
+    return <div className="py-4 text-sm text-neutral-400 text-center">No audio available</div>;
   }
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-4">
+    <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4" style={{ background: "var(--surface)" }}>
       <audio
         ref={audioRef}
         src={audioUrl}
@@ -99,8 +85,6 @@ export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) 
           if (isFinite(d) && d > 0) {
             setDuration(d);
           } else {
-            // WebM blobs from MediaRecorder often report Infinity for duration.
-            // Seek to a large value to force the browser to resolve the real duration.
             const audio = audioRef.current;
             audio.currentTime = 1e10;
             const onSeek = () => {
@@ -112,57 +96,36 @@ export default function AudioPlayer({ audioBlob, onTimeUpdate, seekTo }: Props) 
           }
         }}
         onDurationChange={() => {
-          if (audioRef.current && isFinite(audioRef.current.duration) && audioRef.current.duration > 0) {
+          if (audioRef.current && isFinite(audioRef.current.duration) && audioRef.current.duration > 0)
             setDuration(audioRef.current.duration);
-          }
         }}
         onEnded={() => setPlaying(false)}
       />
 
-      {/* Progress bar */}
-      <div className="cursor-pointer group mb-3" onClick={seek}>
-        <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-indigo-500 rounded-full transition-all duration-100"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={togglePlay}
+          className="w-9 h-9 rounded-full bg-accent text-white flex items-center justify-center shrink-0 hover:opacity-90 transition-opacity"
+        >
+          {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
+        </button>
 
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-500 dark:text-gray-400 font-mono w-16">
-          {formatTime(currentTime)}
-        </span>
+        <span className="text-[11px] font-mono text-neutral-400 tabular-nums w-10 shrink-0">{formatTime(currentTime)}</span>
 
-        <div className="flex items-center gap-3">
-          <button onClick={() => skip(-10)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            <SkipBack className="w-4 h-4" />
-          </button>
-          <button
-            onClick={togglePlay}
-            className="p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all active:scale-95 shadow-lg shadow-indigo-500/25"
-          >
-            {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-          </button>
-          <button onClick={() => skip(10)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            <SkipForward className="w-4 h-4" />
-          </button>
+        <div className="flex-1 cursor-pointer group" onClick={seek}>
+          <div className="h-1 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+            <div className="h-full bg-accent rounded-full transition-all duration-100" style={{ width: `${progress}%` }} />
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 w-16 justify-end">
-          <button
-            onClick={changeSpeed}
-            className="text-xs font-bold px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors tabular-nums"
-          >
-            {speed}x
-          </button>
-        </div>
-      </div>
+        <span className="text-[11px] font-mono text-neutral-400 tabular-nums w-10 text-right shrink-0">{formatTime(duration)}</span>
 
-      <div className="text-center mt-1">
-        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">
-          {formatTime(duration)}
-        </span>
+        <button
+          onClick={changeSpeed}
+          className="text-[11px] font-semibold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 tabular-nums transition-colors"
+        >
+          {speed}x
+        </button>
       </div>
     </div>
   );

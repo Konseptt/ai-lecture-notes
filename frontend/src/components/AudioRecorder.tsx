@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mic, Square, Pause, Play, Save, X, FileText } from "lucide-react";
+import { Mic, Square, Pause, Play, Save, X, FileText, AlertTriangle } from "lucide-react";
 import { saveLecture } from "../lib/storage";
 import type { Lecture, TranscriptSegment } from "../lib/types";
 
@@ -26,7 +26,6 @@ export default function AudioRecorder() {
   const [analyserData, setAnalyserData] = useState<Uint8Array>(new Uint8Array(64));
   const [saving, setSaving] = useState(false);
 
-  // Live transcription state
   const [liveText, setLiveText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
@@ -41,23 +40,36 @@ export default function AudioRecorder() {
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const liveTextRef = useRef("");
+  const segmentsRef = useRef<TranscriptSegment[]>([]);
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
+  const isRecordingRef = useRef(false);
+  const recordingStartTimeRef = useRef<number>(0);
+  const pendingInterimRef = useRef("");
 
-  const getElapsedNow = useCallback(() => {
-    if (state === "recording") {
-      return pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000;
-    }
-    return pausedElapsed.current;
-  }, [state]);
+  function getElapsedSeconds(): number {
+    if (!isRecordingRef.current) return pausedElapsed.current;
+    return pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000;
+  }
+
+  function commitText(raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const timestamp = formatTime(getElapsedSeconds());
+    liveTextRef.current += (liveTextRef.current ? " " : "") + trimmed;
+    const newSeg: TranscriptSegment = { time: timestamp, text: trimmed };
+    segmentsRef.current = [...segmentsRef.current, newSeg];
+    setLiveText(liveTextRef.current);
+    setSegments(segmentsRef.current);
+  }
 
   const updateAnalyser = useCallback(() => {
-    if (analyserRef.current && state === "recording") {
+    if (analyserRef.current && isRecordingRef.current) {
       const data = new Uint8Array(analyserRef.current.frequencyBinCount);
       analyserRef.current.getByteFrequencyData(data);
       setAnalyserData(data.slice(0, 64));
       animFrameRef.current = requestAnimationFrame(updateAnalyser);
     }
-  }, [state]);
+  }, []);
 
   useEffect(() => {
     if (state === "recording") {
@@ -75,7 +87,6 @@ export default function AudioRecorder() {
     };
   }, []);
 
-  // Auto-scroll transcript box
   useEffect(() => {
     if (transcriptBoxRef.current) {
       transcriptBoxRef.current.scrollTop = transcriptBoxRef.current.scrollHeight;
@@ -107,14 +118,11 @@ export default function AudioRecorder() {
       }
 
       if (finalChunk) {
-        const trimmed = finalChunk.trim();
-        if (trimmed) {
-          const timestamp = formatTime(getElapsedNow());
-          liveTextRef.current += (liveTextRef.current ? " " : "") + trimmed;
-          setLiveText(liveTextRef.current);
-          setSegments((prev) => [...prev, { time: timestamp, text: trimmed }]);
-        }
+        commitText(finalChunk);
+        pendingInterimRef.current = "";
       }
+
+      pendingInterimRef.current = interim;
       setInterimText(interim);
     };
 
@@ -123,9 +131,16 @@ export default function AudioRecorder() {
       console.warn("Speech recognition error:", event.error);
     };
 
-    // Auto-restart on unexpected end while still recording
     recognition.onend = () => {
-      if (recognitionRef.current && state === "recording") {
+      // When the session ends, any unfinalized interim text would be lost.
+      // Commit it as a segment before restarting.
+      if (pendingInterimRef.current.trim()) {
+        commitText(pendingInterimRef.current);
+        pendingInterimRef.current = "";
+        setInterimText("");
+      }
+
+      if (isRecordingRef.current && recognitionRef.current) {
         try {
           recognition.start();
         } catch {}
@@ -143,6 +158,7 @@ export default function AudioRecorder() {
   function stopSpeechRecognition() {
     if (recognitionRef.current) {
       recognitionRef.current.onend = null;
+      recognitionRef.current.onresult = null;
       try {
         recognitionRef.current.stop();
       } catch {}
@@ -190,15 +206,19 @@ export default function AudioRecorder() {
       recorder.start(1000);
       mediaRecorder.current = recorder;
 
-      // Reset transcription state
       liveTextRef.current = "";
+      segmentsRef.current = [];
+      pendingInterimRef.current = "";
       setLiveText("");
       setInterimText("");
       setSegments([]);
 
-      setState("recording");
-      startTimeRef.current = Date.now();
+      const now = Date.now();
+      startTimeRef.current = now;
+      recordingStartTimeRef.current = now;
       pausedElapsed.current = 0;
+      isRecordingRef.current = true;
+      setState("recording");
 
       timerRef.current = window.setInterval(() => {
         setElapsed(pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000);
@@ -215,6 +235,7 @@ export default function AudioRecorder() {
       mediaRecorder.current.pause();
       pausedElapsed.current += (Date.now() - startTimeRef.current) / 1000;
       clearInterval(timerRef.current);
+      isRecordingRef.current = false;
       setState("paused");
       setAnalyserData(new Uint8Array(64));
       stopSpeechRecognition();
@@ -225,10 +246,13 @@ export default function AudioRecorder() {
     if (mediaRecorder.current?.state === "paused") {
       mediaRecorder.current.resume();
       startTimeRef.current = Date.now();
+      isRecordingRef.current = true;
+      setState("recording");
+
       timerRef.current = window.setInterval(() => {
         setElapsed(pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000);
       }, 200);
-      setState("recording");
+
       startSpeechRecognition();
     }
   }
@@ -237,6 +261,7 @@ export default function AudioRecorder() {
     if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
       mediaRecorder.current.stop();
       clearInterval(timerRef.current);
+      isRecordingRef.current = false;
       setState("stopped");
       setAnalyserData(new Uint8Array(64));
       stopSpeechRecognition();
@@ -251,6 +276,8 @@ export default function AudioRecorder() {
     setCourse("");
     setTags("");
     liveTextRef.current = "";
+    segmentsRef.current = [];
+    pendingInterimRef.current = "";
     setLiveText("");
     setInterimText("");
     setSegments([]);
@@ -273,7 +300,7 @@ export default function AudioRecorder() {
       audioBlob,
       transcript: {
         transcript: liveText,
-        segments,
+        segments: segmentsRef.current,
       },
       status: "transcribed",
     };
@@ -283,198 +310,213 @@ export default function AudioRecorder() {
     navigate(`/lecture/${lecture.id}`);
   }
 
-  const barCount = 48;
+  const barCount = 32;
   const bars = Array.from({ length: barCount }, (_, i) => {
     const idx = Math.floor((i / barCount) * analyserData.length);
     return analyserData[idx] / 255;
   });
-
   const hasSpeechAPI = !!getSpeechRecognition();
+  const isActive = state === "recording";
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      <h1 className="text-3xl font-bold">Record Lecture</h1>
+    <div>
+      {/* Two-column when recording: left = controls, right = transcript */}
+      <div className="mb-6">
+        <h1 className="text-3xl font-extrabold tracking-tight">Record</h1>
+        <p className="text-sm text-neutral-500 mt-1">
+          {state === "idle" && "Hit the button. We'll handle the rest."}
+          {isActive && "Listening... speak normally."}
+          {state === "paused" && "Paused. Take your time."}
+          {state === "stopped" && "All done. Save it below."}
+        </p>
+      </div>
 
       {!hasSpeechAPI && state === "idle" && (
-        <div className="w-full max-w-2xl bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900 rounded-xl p-3 text-sm text-yellow-700 dark:text-yellow-400">
-          Live transcription requires Chrome or Edge. Other browsers will record audio but won't transcribe in real-time.
+        <div className="mb-6 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          ⚠️ Live transcription needs Chrome or Edge. Audio still records in other browsers.
         </div>
       )}
 
-      {/* Waveform visualizer */}
-      <div className="flex items-end justify-center gap-[3px] h-24 w-full max-w-lg">
-        {bars.map((v, i) => (
-          <div
-            key={i}
-            className="w-2 rounded-full bg-indigo-500 transition-all duration-75"
-            style={{ height: `${Math.max(4, v * 100)}%`, opacity: state === "recording" ? 0.6 + v * 0.4 : 0.2 }}
-          />
-        ))}
-      </div>
-
-      {/* Timer */}
-      <div className="text-5xl font-mono font-bold tabular-nums tracking-wider">
-        {formatTime(elapsed)}
-      </div>
-
-      {/* Status */}
-      <div className="text-sm font-medium uppercase tracking-widest text-gray-500 dark:text-gray-400">
-        {state === "idle" && "Ready to record"}
-        {state === "recording" && (
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            Recording & Transcribing Live
-          </span>
-        )}
-        {state === "paused" && "Paused"}
-        {state === "stopped" && "Recording complete"}
-      </div>
-
-      {/* Controls */}
-      <div className="flex items-center gap-4">
-        {state === "idle" && (
-          <button
-            onClick={startRecording}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-lg font-semibold transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 active:scale-95"
-          >
-            <Mic className="w-6 h-6" />
-            Start Recording
-          </button>
-        )}
-        {state === "recording" && (
-          <>
-            <button
-              onClick={pauseRecording}
-              className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
-            >
-              <Pause className="w-5 h-5" />
-              Pause
-            </button>
-            <button
-              onClick={stopRecording}
-              className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
-            >
-              <Square className="w-5 h-5" />
-              Stop
-            </button>
-          </>
-        )}
-        {state === "paused" && (
-          <>
-            <button
-              onClick={resumeRecording}
-              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
-            >
-              <Play className="w-5 h-5" />
-              Resume
-            </button>
-            <button
-              onClick={stopRecording}
-              className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
-            >
-              <Square className="w-5 h-5" />
-              Stop
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Live transcript panel */}
-      {state !== "idle" && (
-        <div className="w-full max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-            <FileText className="w-4 h-4 text-indigo-500" />
-            <span className="text-sm font-semibold">Live Transcript</span>
-            {state === "recording" && (
-              <span className="ml-auto flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                Listening...
-              </span>
-            )}
-            {segments.length > 0 && (
-              <span className="ml-auto text-xs text-gray-400">{segments.length} segments</span>
-            )}
-          </div>
-          <div
-            ref={transcriptBoxRef}
-            className="p-4 max-h-64 overflow-y-auto space-y-2 text-sm leading-relaxed"
-          >
-            {segments.length === 0 && !interimText ? (
-              <p className="text-gray-400 dark:text-gray-600 italic">
-                {state === "recording"
-                  ? "Start speaking... transcript will appear here in real-time"
-                  : state === "stopped"
-                  ? "No speech was detected during the recording"
-                  : "Transcription paused"}
-              </p>
+      <div className={`${state !== "idle" && state !== "stopped" ? "grid grid-cols-1 lg:grid-cols-5 gap-6" : ""}`}>
+        {/* Left: Recording controls */}
+        <div className={state !== "idle" && state !== "stopped" ? "lg:col-span-2" : ""}>
+          <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 flex flex-col items-center gap-5" style={{ background: "var(--surface)" }}>
+            {/* Big record button */}
+            {state === "idle" ? (
+              <button
+                onClick={startRecording}
+                className="group w-32 h-32 rounded-full bg-accent flex items-center justify-center hover:opacity-90 transition-all active:scale-95"
+              >
+                <Mic className="w-10 h-10 text-white" />
+              </button>
             ) : (
               <>
-                {segments.map((seg, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="shrink-0 text-xs font-mono text-indigo-500 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded mt-0.5">
-                      {seg.time}
-                    </span>
-                    <span className="text-gray-700 dark:text-gray-300">{seg.text}</span>
+                {/* Waveform */}
+                <div className="flex items-center justify-center gap-[3px] h-16 w-full">
+                  {bars.map((v, i) => (
+                    <div
+                      key={i}
+                      className="rounded-full transition-all duration-100"
+                      style={{
+                        width: "3px",
+                        height: `${Math.max(8, v * 100)}%`,
+                        background: isActive
+                          ? `var(--accent)`
+                          : "rgb(212 212 212 / 0.4)",
+                        opacity: isActive ? 0.4 + v * 0.6 : 0.3,
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Timer */}
+                <div className="font-mono text-4xl font-bold tabular-nums tracking-wider">
+                  {formatTime(elapsed)}
+                </div>
+
+                {/* Status dot */}
+                {isActive && (
+                  <div className="flex items-center gap-2 text-xs text-neutral-500">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    recording
                   </div>
-                ))}
-                {interimText && (
-                  <div className="flex gap-2">
-                    <span className="shrink-0 text-xs font-mono text-gray-400 px-1.5 py-0.5 rounded mt-0.5">
-                      ...
-                    </span>
-                    <span className="text-gray-400 dark:text-gray-500 italic">{interimText}</span>
-                  </div>
+                )}
+                {state === "paused" && (
+                  <div className="text-xs text-neutral-400">paused</div>
                 )}
               </>
             )}
+
+            {/* Control buttons */}
+            {state === "idle" && (
+              <p className="text-xs text-neutral-400">tap to start</p>
+            )}
+            {isActive && (
+              <div className="flex gap-2">
+                <button onClick={pauseRecording} className="px-4 py-2 text-sm font-medium border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+                  <Pause className="w-4 h-4 inline mr-1.5" />Pause
+                </button>
+                <button onClick={stopRecording} className="px-4 py-2 text-sm font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 rounded-lg hover:opacity-90 transition-opacity">
+                  <Square className="w-4 h-4 inline mr-1.5" />Stop
+                </button>
+              </div>
+            )}
+            {state === "paused" && (
+              <div className="flex gap-2">
+                <button onClick={resumeRecording} className="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:opacity-90 transition-opacity">
+                  <Play className="w-4 h-4 inline mr-1.5" />Resume
+                </button>
+                <button onClick={stopRecording} className="px-4 py-2 text-sm font-medium border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+                  <Square className="w-4 h-4 inline mr-1.5" />Stop
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Save form */}
+        {/* Right: Live transcript (only while recording/paused) */}
+        {state !== "idle" && state !== "stopped" && (
+          <div className="lg:col-span-3 border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden flex flex-col" style={{ background: "var(--surface)" }}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+              <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Transcript</span>
+              {isActive && (
+                <span className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  live
+                </span>
+              )}
+              {segments.length > 0 && !isActive && (
+                <span className="text-[11px] text-neutral-400">{segments.length} segments</span>
+              )}
+            </div>
+            <div
+              ref={transcriptBoxRef}
+              className="flex-1 p-4 max-h-80 overflow-y-auto scrollbar-thin space-y-2 text-sm"
+            >
+              {segments.length === 0 && !interimText ? (
+                <p className="text-neutral-400 italic text-center py-8 text-xs">
+                  {isActive ? "say something..." : "paused"}
+                </p>
+              ) : (
+                <>
+                  {segments.map((seg, i) => (
+                    <div key={i} className="flex gap-3">
+                      <span className="shrink-0 text-[10px] font-mono text-neutral-400 tabular-nums mt-1">
+                        {seg.time}
+                      </span>
+                      <span className="leading-relaxed">{seg.text}</span>
+                    </div>
+                  ))}
+                  {interimText && (
+                    <div className="flex gap-3">
+                      <span className="shrink-0 text-[10px] font-mono text-neutral-300 dark:text-neutral-600 tabular-nums mt-1">
+                        {formatTime(getElapsedSeconds())}
+                      </span>
+                      <span className="text-neutral-400 italic leading-relaxed">{interimText}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Save form - shows after stopping */}
       {state === "stopped" && audioBlob && (
-        <div className="w-full max-w-md flex flex-col gap-4 bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
-          <h2 className="text-lg font-semibold">Save Recording</h2>
-          {liveText && (
-            <p className="text-xs text-green-600 dark:text-green-400">
-              Transcript captured: {liveText.split(" ").length} words, {segments.length} segments
-            </p>
-          )}
-          <input
-            type="text"
-            placeholder="Lecture title (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <input
-            type="text"
-            placeholder="Course name (optional)"
-            value={course}
-            onChange={(e) => setCourse(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <input
-            type="text"
-            placeholder="Tags (comma separated)"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <div className="flex gap-3">
+        <div className="mt-6 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5" style={{ background: "var(--surface)" }}>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="font-bold text-lg">Save this recording</h2>
+              {liveText ? (
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  ✓ {segments.length} segments, {liveText.split(/\s+/).length} words captured
+                </p>
+              ) : (
+                <p className="text-xs text-neutral-400 mt-0.5">No transcript was captured.</p>
+              )}
+            </div>
+            <span className="font-mono text-sm text-neutral-400 tabular-nums">{formatTime(elapsed)}</span>
+          </div>
+
+          <div className="space-y-3">
+            <input
+              type="text"
+              placeholder="Title (e.g. Psych 101 — Memory)"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full px-0 py-2 bg-transparent border-b border-neutral-200 dark:border-neutral-800 focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <input
+                type="text"
+                placeholder="Course"
+                value={course}
+                onChange={(e) => setCourse(e.target.value)}
+                className="w-full px-0 py-2 bg-transparent border-b border-neutral-200 dark:border-neutral-800 focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+              />
+              <input
+                type="text"
+                placeholder="Tags (comma separated)"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                className="w-full px-0 py-2 bg-transparent border-b border-neutral-200 dark:border-neutral-800 focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
             <button
               onClick={saveRecording}
               disabled={saving}
-              className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white px-6 py-3 rounded-xl font-semibold transition-all"
+              className="flex-1 bg-accent text-white text-sm font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
             >
-              <Save className="w-5 h-5" />
-              {saving ? "Saving..." : "Save & Generate Notes"}
+              {saving ? "Saving..." : "Save & generate notes →"}
             </button>
             <button
               onClick={discardRecording}
-              className="flex items-center gap-2 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 px-6 py-3 rounded-xl font-semibold transition-all"
+              className="px-4 py-2.5 text-sm font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
             >
-              <X className="w-5 h-5" />
               Discard
             </button>
           </div>

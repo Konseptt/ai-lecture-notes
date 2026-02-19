@@ -1,9 +1,13 @@
 import json
 import asyncio
+import logging
 import httpx
+
+logger = logging.getLogger("lecture-api.ai")
 
 ENDPOINT = "https://models.github.ai/inference"
 MODEL = "deepseek/DeepSeek-V3-0324"
+MAX_INPUT_CHARS = 150_000
 
 SUMMARIZE_PROMPT = """You are an expert academic summarizer. Given the following lecture transcript, generate three types of summaries.
 
@@ -131,6 +135,7 @@ class GeminiService:
         raise RuntimeError("Max retries exceeded")
 
     async def summarize(self, transcript: str) -> dict:
+        transcript = transcript[:MAX_INPUT_CHARS]
         text = await self._call_api(SUMMARIZE_PROMPT, transcript)
         raw = _clean_json_response(text)
         try:
@@ -149,6 +154,7 @@ class GeminiService:
             }
 
     async def generate_notes(self, transcript: str) -> dict:
+        transcript = transcript[:MAX_INPUT_CHARS]
         text = await self._call_api(NOTES_PROMPT, transcript)
         raw = _clean_json_response(text)
         try:

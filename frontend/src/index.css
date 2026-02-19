@@ -3,7 +3,40 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply min-h-screen antialiased;
+  :root {
+    --bg: #faf9f7;
+    --surface: #ffffff;
+    --accent: #e05a33;
+    --accent-light: #fef0ec;
   }
+  .dark {
+    --bg: #141211;
+    --surface: #1c1b19;
+    --accent: #e8734f;
+    --accent-light: #2a1f1a;
+  }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    @apply min-h-screen antialiased text-neutral-800 dark:text-neutral-200;
+  }
+  code, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-neutral-300 dark:bg-neutral-700 rounded-full; }
+
+  .accent { color: var(--accent); }
+  .bg-accent { background: var(--accent); }
+  .bg-accent-light { background: var(--accent-light); }
+  .border-accent { border-color: var(--accent); }
+}
+
+::selection {
+  background: var(--accent);
+  color: white;
 }

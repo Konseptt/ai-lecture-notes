@@ -17,256 +17,118 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function buildTranscriptText(lecture: Lecture): string {
-  const lines: string[] = [];
-  lines.push(`# ${lecture.title}`);
-  lines.push(`Course: ${lecture.course || "N/A"}`);
-  lines.push(`Date: ${new Date(lecture.date).toLocaleDateString()}`);
-  lines.push("");
-  lines.push("## Transcript");
-  lines.push("");
-  if (lecture.transcript) {
-    if (lecture.transcript.segments.length > 0) {
-      for (const seg of lecture.transcript.segments) {
-        lines.push(`[${seg.time}] ${seg.text}`);
-        lines.push("");
-      }
-    } else {
-      lines.push(lecture.transcript.transcript);
-    }
+function sanitize(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "_").slice(0, 100);
+}
+
+function buildTranscriptText(l: Lecture): string {
+  const lines = [`# ${l.title}`, `Course: ${l.course || "N/A"}`, `Date: ${new Date(l.date).toLocaleDateString()}`, "", "## Transcript", ""];
+  if (l.transcript) {
+    if (l.transcript.segments.length > 0) l.transcript.segments.forEach((s) => lines.push(`[${s.time}] ${s.text}`, ""));
+    else lines.push(l.transcript.transcript);
   }
   return lines.join("\n");
 }
 
-function buildSummaryText(lecture: Lecture): string {
-  const lines: string[] = [];
-  lines.push(`# ${lecture.title} - Summary`);
-  lines.push("");
-
-  if (lecture.summary) {
-    lines.push("## Quick Summary");
-    lecture.summary.quick.points.forEach((p, i) => lines.push(`${i + 1}. ${p}`));
-    lines.push("");
-
-    lines.push("## Detailed Summary");
-    for (const sec of lecture.summary.detailed.sections) {
-      lines.push(`### ${sec.heading}`);
-      lines.push(sec.content);
-      lines.push("");
-    }
-
-    lines.push("## Exam-Focused Summary");
-    if (lecture.summary.exam.definitions.length > 0) {
-      lines.push("### Definitions");
-      for (const d of lecture.summary.exam.definitions) {
-        lines.push(`- ${d.term}: ${d.definition}`);
-      }
-      lines.push("");
-    }
-    if (lecture.summary.exam.potential_questions.length > 0) {
-      lines.push("### Potential Exam Questions");
-      for (const q of lecture.summary.exam.potential_questions) {
-        lines.push(`Q: ${q.question}`);
-        lines.push(`   Hint: ${q.hint}`);
-      }
-      lines.push("");
-    }
-  }
+function buildSummaryText(l: Lecture): string {
+  if (!l.summary) return "";
+  const lines = [`# ${l.title} — Summary`, "", "## Quick Summary"];
+  l.summary.quick.points.forEach((p, i) => lines.push(`${i + 1}. ${p}`));
+  lines.push("", "## Detailed");
+  l.summary.detailed.sections.forEach((s) => { lines.push(`### ${s.heading}`, s.content, ""); });
   return lines.join("\n");
 }
 
-function buildNotesText(lecture: Lecture): string {
-  const lines: string[] = [];
-  if (!lecture.notes) return "";
-  lines.push(`# ${lecture.notes.title}`);
-  lines.push("");
-
-  for (const sec of lecture.notes.sections) {
-    lines.push(`## ${sec.heading}`);
-    for (const b of sec.bullets) lines.push(`- ${b}`);
-    if (sec.definitions.length > 0) {
-      lines.push("");
-      lines.push("Definitions:");
-      for (const d of sec.definitions) lines.push(`  ${d.term}: ${d.definition}`);
-    }
-    if (sec.highlights.length > 0) {
-      lines.push("");
-      lines.push("Key Points:");
-      for (const h of sec.highlights) lines.push(`  ★ ${h}`);
-    }
-    if (sec.examples.length > 0) {
-      lines.push("");
-      lines.push("Examples:");
-      for (const e of sec.examples) lines.push(`  → ${e}`);
-    }
-    if (sec.formulas.length > 0) {
-      lines.push("");
-      lines.push("Formulas:");
-      for (const f of sec.formulas) lines.push(`  ${f}`);
-    }
+function buildNotesText(l: Lecture): string {
+  if (!l.notes) return "";
+  const lines = [`# ${l.notes.title}`, ""];
+  l.notes.sections.forEach((s) => {
+    lines.push(`## ${s.heading}`);
+    s.bullets.forEach((b) => lines.push(`- ${b}`));
+    s.definitions.forEach((d) => lines.push(`  ${d.term}: ${d.definition}`));
     lines.push("");
-  }
-
-  if (lecture.notes.action_items.length > 0) {
-    lines.push("## Action Items");
-    for (const a of lecture.notes.action_items) lines.push(`☐ ${a}`);
-    lines.push("");
-  }
-
-  if (lecture.notes.key_terms.length > 0) {
-    lines.push("## Glossary");
-    for (const kt of lecture.notes.key_terms) lines.push(`${kt.term}: ${kt.definition}`);
-  }
-
+  });
+  if (l.notes.action_items.length) { lines.push("## Action Items"); l.notes.action_items.forEach((a) => lines.push(`[ ] ${a}`)); }
   return lines.join("\n");
 }
 
-function exportPDF(lecture: Lecture) {
+function exportPDF(l: Lecture) {
   const doc = new jsPDF();
   const margin = 15;
-  const pageWidth = doc.internal.pageSize.getWidth() - margin * 2;
+  const pw = doc.internal.pageSize.getWidth() - margin * 2;
   let y = margin;
-
-  function addText(text: string, fontSize: number, bold = false) {
-    doc.setFontSize(fontSize);
+  function add(text: string, size: number, bold = false) {
+    doc.setFontSize(size);
     doc.setFont("helvetica", bold ? "bold" : "normal");
-    const lines = doc.splitTextToSize(text, pageWidth);
-    for (const line of lines) {
-      if (y > 280) {
-        doc.addPage();
-        y = margin;
-      }
+    for (const line of doc.splitTextToSize(text, pw)) {
+      if (y > 280) { doc.addPage(); y = margin; }
       doc.text(line, margin, y);
-      y += fontSize * 0.5;
+      y += size * 0.5;
     }
     y += 2;
   }
-
-  addText(lecture.title, 18, true);
-  addText(`Course: ${lecture.course || "N/A"} | Date: ${new Date(lecture.date).toLocaleDateString()}`, 10);
-  y += 5;
-
-  if (lecture.transcript) {
-    addText("Transcript", 14, true);
-    y += 2;
-    if (lecture.transcript.segments.length > 0) {
-      for (const seg of lecture.transcript.segments) {
-        addText(`[${seg.time}] ${seg.text}`, 9);
-      }
-    } else {
-      addText(lecture.transcript.transcript, 9);
-    }
-    y += 5;
-  }
-
-  if (lecture.summary) {
-    addText("Quick Summary", 14, true);
-    y += 2;
-    lecture.summary.quick.points.forEach((p, i) => addText(`${i + 1}. ${p}`, 9));
-    y += 5;
-
-    addText("Detailed Summary", 14, true);
-    y += 2;
-    for (const sec of lecture.summary.detailed.sections) {
-      addText(sec.heading, 11, true);
-      addText(sec.content, 9);
-    }
-    y += 5;
-  }
-
-  if (lecture.notes) {
-    addText("Structured Notes", 14, true);
-    y += 2;
-    for (const sec of lecture.notes.sections) {
-      addText(sec.heading, 11, true);
-      for (const b of sec.bullets) addText(`• ${b}`, 9);
-    }
-  }
-
-  doc.save(`${lecture.title.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`);
+  add(l.title, 18, true);
+  add(`${l.course || "N/A"} | ${new Date(l.date).toLocaleDateString()}`, 10);
+  y += 4;
+  if (l.transcript) { add("Transcript", 14, true); y += 2; if (l.transcript.segments.length) l.transcript.segments.forEach((s) => add(`[${s.time}] ${s.text}`, 9)); else add(l.transcript.transcript, 9); y += 4; }
+  if (l.summary) { add("Quick Summary", 14, true); y += 2; l.summary.quick.points.forEach((p, i) => add(`${i + 1}. ${p}`, 9)); y += 4; }
+  if (l.notes) { add("Notes", 14, true); y += 2; l.notes.sections.forEach((s) => { add(s.heading, 11, true); s.bullets.forEach((b) => add(`• ${b}`, 9)); }); }
+  doc.save(`${sanitize(l.title)}.pdf`);
 }
 
 export default function ExportButton({ lecture }: Props) {
   const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function close(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
+    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
   async function downloadAudio() {
     const full = await getLecture(lecture.id);
-    if (full?.audioBlob) {
-      downloadBlob(full.audioBlob, `${lecture.title.replace(/[^a-zA-Z0-9]/g, "_")}.webm`);
-    }
+    if (full?.audioBlob) downloadBlob(full.audioBlob, `${sanitize(lecture.title)}.webm`);
     setOpen(false);
   }
-
   function downloadTxt(content: string, suffix: string) {
-    const blob = new Blob([content], { type: "text/plain" });
-    downloadBlob(blob, `${lecture.title.replace(/[^a-zA-Z0-9]/g, "_")}_${suffix}.txt`);
+    downloadBlob(new Blob([content], { type: "text/plain" }), `${sanitize(lecture.title)}_${suffix}.txt`);
     setOpen(false);
   }
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium"
+        className="flex items-center gap-1.5 text-[13px] font-medium text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
       >
         <Download className="w-4 h-4" />
         Export
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl z-50 py-1 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-48 border border-neutral-200 dark:border-neutral-800 rounded-lg shadow-lg z-50 py-1 overflow-hidden" style={{ background: "var(--surface)" }}>
           {lecture.transcript && (
-            <button
-              onClick={() => downloadTxt(buildTranscriptText(lecture), "transcript")}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <FileText className="w-4 h-4 text-blue-500" />
-              Transcript (.txt)
+            <button onClick={() => downloadTxt(buildTranscriptText(lecture), "transcript")} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+              📄 Transcript
             </button>
           )}
           {lecture.summary && (
-            <button
-              onClick={() => downloadTxt(buildSummaryText(lecture), "summary")}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <FileText className="w-4 h-4 text-purple-500" />
-              Summary (.txt)
+            <button onClick={() => downloadTxt(buildSummaryText(lecture), "summary")} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+              ⚡ Summary
             </button>
           )}
           {lecture.notes && (
-            <button
-              onClick={() => downloadTxt(buildNotesText(lecture), "notes")}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <FileText className="w-4 h-4 text-green-500" />
-              Notes (.txt)
+            <button onClick={() => downloadTxt(buildNotesText(lecture), "notes")} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+              📝 Notes
             </button>
           )}
-          <button
-            onClick={() => { exportPDF(lecture); setOpen(false); }}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            <FileDown className="w-4 h-4 text-red-500" />
-            Full Report (.pdf)
+          <button onClick={() => { exportPDF(lecture); setOpen(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+            📑 Full PDF
           </button>
-          <hr className="my-1 border-gray-200 dark:border-gray-800" />
-          <button
-            onClick={downloadAudio}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            <Music className="w-4 h-4 text-indigo-500" />
-            Audio (.webm)
+          <hr className="my-1 border-neutral-100 dark:border-neutral-800" />
+          <button onClick={downloadAudio} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+            🎵 Audio
           </button>
         </div>
       )}

@@ -1,5 +1,4 @@
 import type { NotesData } from "../lib/types";
-import { FileText, Lightbulb, BookOpen, FlaskConical, CheckSquare, List } from "lucide-react";
 
 interface Props {
   data: NotesData;
@@ -7,20 +6,16 @@ interface Props {
 
 export default function NotesPanel({ data }: Props) {
   return (
-    <div className="space-y-8 max-h-[60vh] overflow-y-auto pr-2">
-      {/* Main sections */}
+    <div className="max-h-[60vh] overflow-y-auto scrollbar-thin space-y-6">
       {data.sections.map((sec, i) => (
         <div key={i}>
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-indigo-500" />
-            {sec.heading}
-          </h3>
+          <h3 className="font-bold text-sm mb-2 pb-1 border-b border-neutral-100 dark:border-neutral-800">{sec.heading}</h3>
 
           {sec.bullets.length > 0 && (
-            <ul className="space-y-1.5 mb-3 ml-1">
+            <ul className="space-y-1 mb-3">
               {sec.bullets.map((b, j) => (
                 <li key={j} className="text-sm flex gap-2 items-start">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-600 mt-2 shrink-0" />
+                  <span className="w-1 h-1 rounded-full bg-neutral-400 mt-2 shrink-0" />
                   {b}
                 </li>
               ))}
@@ -28,61 +23,49 @@ export default function NotesPanel({ data }: Props) {
           )}
 
           {sec.definitions.length > 0 && (
-            <div className="space-y-2 mb-3">
+            <div className="mb-3 space-y-1.5">
               {sec.definitions.map((d, j) => (
-                <div key={j} className="bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900 rounded-xl p-3">
-                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">{d.term}</span>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">{d.definition}</p>
+                <div key={j} className="border-l-2 border-blue-400 pl-3 py-1">
+                  <span className="font-semibold text-sm">{d.term}</span>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">{d.definition}</p>
                 </div>
               ))}
             </div>
           )}
 
           {sec.highlights.length > 0 && (
-            <div className="space-y-1.5 mb-3">
+            <div className="mb-3 space-y-1">
               {sec.highlights.map((h, j) => (
-                <div key={j} className="flex items-start gap-2 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-100 dark:border-yellow-900 rounded-xl p-3">
-                  <Lightbulb className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
-                  <p className="text-sm">{h}</p>
-                </div>
+                <p key={j} className="text-sm bg-accent-light px-3 py-2 rounded-md accent font-medium">💡 {h}</p>
               ))}
             </div>
           )}
 
           {sec.examples.length > 0 && (
-            <div className="space-y-1.5 mb-3">
+            <div className="mb-3 space-y-1">
               {sec.examples.map((ex, j) => (
-                <div key={j} className="flex items-start gap-2 bg-green-50 dark:bg-green-950/20 border border-green-100 dark:border-green-900 rounded-xl p-3">
-                  <FlaskConical className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                  <p className="text-sm">{ex}</p>
-                </div>
+                <p key={j} className="text-sm text-neutral-600 dark:text-neutral-400 pl-3 border-l border-emerald-400">🧪 {ex}</p>
               ))}
             </div>
           )}
 
           {sec.formulas.length > 0 && (
-            <div className="space-y-1.5 mb-3">
+            <div className="mb-3 space-y-1">
               {sec.formulas.map((f, j) => (
-                <div key={j} className="bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900 rounded-xl p-3 font-mono text-sm">
-                  {f}
-                </div>
+                <p key={j} className="font-mono text-sm bg-neutral-100 dark:bg-neutral-800 px-3 py-2 rounded-md">{f}</p>
               ))}
             </div>
           )}
         </div>
       ))}
 
-      {/* Action Items */}
       {data.action_items.length > 0 && (
         <div>
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <CheckSquare className="w-5 h-5 text-orange-500" />
-            Action Items
-          </h3>
+          <h3 className="font-bold text-sm mb-2 pb-1 border-b border-neutral-100 dark:border-neutral-800">☑️ Action Items</h3>
           <ul className="space-y-1.5">
             {data.action_items.map((item, i) => (
               <li key={i} className="text-sm flex gap-2 items-start">
-                <span className="w-5 h-5 rounded border-2 border-orange-300 dark:border-orange-700 shrink-0 mt-0.5" />
+                <input type="checkbox" className="mt-1 accent-[var(--accent)]" readOnly />
                 {item}
               </li>
             ))}
@@ -90,18 +73,14 @@ export default function NotesPanel({ data }: Props) {
         </div>
       )}
 
-      {/* Key Terms Glossary */}
       {data.key_terms.length > 0 && (
         <div>
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <List className="w-5 h-5 text-teal-500" />
-            Key Terms Glossary
-          </h3>
+          <h3 className="font-bold text-sm mb-2 pb-1 border-b border-neutral-100 dark:border-neutral-800">📖 Key Terms</h3>
           <div className="grid gap-2 sm:grid-cols-2">
             {data.key_terms.map((kt, i) => (
-              <div key={i} className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
-                <span className="text-sm font-semibold text-teal-600 dark:text-teal-400">{kt.term}</span>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{kt.definition}</p>
+              <div key={i} className="text-sm">
+                <span className="font-semibold">{kt.term}</span>
+                <span className="text-neutral-500"> — {kt.definition}</span>
               </div>
             ))}
           </div>

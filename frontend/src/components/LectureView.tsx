@@ -1,14 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  ArrowLeft,
-  FileText,
-  Zap,
-  BookOpen,
-  Loader2,
-  AlertCircle,
-  Sparkles,
-} from "lucide-react";
+import { ArrowLeft, FileText, Zap, BookOpen, Loader2, AlertCircle, Sparkles } from "lucide-react";
 import { getLecture, updateLecture } from "../lib/storage";
 import { summarizeTranscript, generateNotes } from "../lib/api";
 import type { Lecture } from "../lib/types";
@@ -19,12 +11,6 @@ import NotesPanel from "./NotesPanel";
 import ExportButton from "./ExportButton";
 
 type Tab = "transcript" | "summary" | "notes";
-
-const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: "transcript", label: "Transcript", icon: <FileText className="w-4 h-4" /> },
-  { key: "summary", label: "Summaries", icon: <Zap className="w-4 h-4" /> },
-  { key: "notes", label: "Notes", icon: <BookOpen className="w-4 h-4" /> },
-];
 
 export default function LectureView() {
   const { id } = useParams<{ id: string }>();
@@ -39,10 +25,7 @@ export default function LectureView() {
 
   useEffect(() => {
     if (!id) return;
-    getLecture(id).then((l) => {
-      if (l) setLecture(l);
-      else navigate("/");
-    });
+    getLecture(id).then((l) => { if (l) setLecture(l); else navigate("/"); });
   }, [id, navigate]);
 
   useEffect(() => {
@@ -54,12 +37,11 @@ export default function LectureView() {
 
   async function processLecture() {
     if (!lecture?.transcript?.transcript) {
-      setError("No transcript available. Please re-record with speech recognition enabled.");
+      setError("No transcript. Try re-recording with Chrome or Edge.");
       return;
     }
     setProcessing(true);
     setError("");
-
     try {
       setProcessingStep("Generating summaries...");
       await updateLecture(lecture.id, { status: "summarizing" });
@@ -69,12 +51,12 @@ export default function LectureView() {
       await updateLecture(lecture.id, { summary, status: "generating_notes" });
       setLecture((l) => l && { ...l, summary, status: "generating_notes" });
 
-      setProcessingStep("Creating structured notes...");
+      setProcessingStep("Creating notes...");
       const notes = await generateNotes(lecture.transcript.transcript);
       await updateLecture(lecture.id, { notes, status: "complete" });
       setLecture((l) => l && { ...l, notes, status: "complete" });
     } catch (err: any) {
-      const msg = err?.message || "Processing failed";
+      const msg = err?.message || "Something went wrong";
       setError(msg);
       await updateLecture(lecture.id, { status: "error", errorMessage: msg });
       setLecture((l) => l && { ...l, status: "error", errorMessage: msg });
@@ -92,134 +74,108 @@ export default function LectureView() {
   }
 
   if (!lecture) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-      </div>
-    );
+    return <div className="flex justify-center py-20"><Loader2 className="w-5 h-5 animate-spin text-neutral-400" /></div>;
   }
 
   const hasTranscript = !!lecture.transcript;
   const hasSummary = !!lecture.summary;
   const hasNotes = !!lecture.notes;
 
+  const tabs: { key: Tab; label: string; enabled: boolean }[] = [
+    { key: "transcript", label: "Transcript", enabled: hasTranscript },
+    { key: "summary", label: "Summary", enabled: hasSummary },
+    { key: "notes", label: "Notes", enabled: hasNotes },
+  ];
+
   return (
-    <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-start gap-4">
-        <button
-          onClick={() => navigate("/")}
-          className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors mt-1"
-        >
+    <div>
+      {/* Back + header */}
+      <div className="flex items-start gap-3 mb-6">
+        <button onClick={() => navigate("/")} className="mt-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold">{lecture.title}</h1>
-          <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {lecture.course && <span>{lecture.course}</span>}
-            <span>{new Date(lecture.date).toLocaleDateString()}</span>
-          </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight truncate">{lecture.title}</h1>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            {lecture.course && <>{lecture.course} · </>}
+            {new Date(lecture.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+          </p>
         </div>
-        {lecture.status === "complete" && (
-          <ExportButton lecture={lecture} />
-        )}
+        {lecture.status === "complete" && <ExportButton lecture={lecture} />}
       </div>
 
-      {/* Processing indicator */}
+      {/* Processing */}
       {processing && (
-        <div className="flex items-center gap-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-2xl p-4">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+        <div className="mb-4 flex items-center gap-3 border border-neutral-200 dark:border-neutral-800 rounded-lg px-4 py-3" style={{ background: "var(--surface)" }}>
+          <Loader2 className="w-4 h-4 animate-spin text-[var(--accent)]" />
           <div>
-            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-400">{processingStep}</p>
-            <p className="text-xs text-indigo-500 dark:text-indigo-500 mt-0.5">Using AI to analyze your transcript...</p>
+            <p className="text-sm font-semibold">{processingStep}</p>
+            <p className="text-xs text-neutral-400">this usually takes 10-20 seconds</p>
           </div>
         </div>
       )}
 
       {/* Error */}
       {error && (
-        <div className="flex items-center gap-3 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900 rounded-2xl p-4">
-          <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-red-700 dark:text-red-400">Processing failed</p>
-            <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">{error}</p>
-          </div>
-          <button
-            onClick={handleRetry}
-            className="px-4 py-2 text-sm font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-xl hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
-          >
-            Retry
+        <div className="mb-4 flex items-center gap-3 border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/10 rounded-lg px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          <p className="text-sm text-red-700 dark:text-red-400 flex-1">{error}</p>
+          <button onClick={handleRetry} className="text-xs font-semibold text-red-600 hover:text-red-700 dark:text-red-400">
+            retry
           </button>
         </div>
       )}
 
       {/* Audio player */}
-      <AudioPlayer
-        audioBlob={lecture.audioBlob}
-        seekTo={seekTime}
-        onTimeUpdate={() => {}}
-      />
+      <div className="mb-6">
+        <AudioPlayer audioBlob={lecture.audioBlob} seekTo={seekTime} onTimeUpdate={() => {}} />
+      </div>
 
-      {/* Generate AI notes button (if transcript exists but no summary/notes yet and not processing) */}
+      {/* Generate button */}
       {hasTranscript && !hasSummary && !hasNotes && !processing && !error && lecture.status !== "summarizing" && lecture.status !== "generating_notes" && (
         <button
           onClick={handleRetry}
-          className="flex items-center justify-center gap-2 w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-indigo-500/25"
+          className="mb-6 w-full bg-accent text-white text-sm font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
         >
-          <Sparkles className="w-5 h-5" />
-          Generate AI Summaries & Notes
+          <Sparkles className="w-4 h-4" />
+          Generate AI summaries & notes
         </button>
       )}
 
       {/* Tabs */}
       {hasTranscript && (
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
-          {TABS.map((t) => {
-            const disabled =
-              (t.key === "summary" && !hasSummary) ||
-              (t.key === "notes" && !hasNotes);
-            return (
-              <button
-                key={t.key}
-                onClick={() => !disabled && setTab(t.key)}
-                disabled={disabled}
-                className={`flex items-center gap-2 flex-1 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  tab === t.key
-                    ? "bg-white dark:bg-gray-900 shadow-sm text-indigo-600 dark:text-indigo-400"
-                    : disabled
-                    ? "text-gray-400 dark:text-gray-600 cursor-not-allowed"
-                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                }`}
-              >
-                {t.icon}
-                {t.label}
-                {disabled && processing && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
-              </button>
-            );
-          })}
+        <div className="flex gap-0 border-b border-neutral-200 dark:border-neutral-800 mb-6">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => t.enabled && setTab(t.key)}
+              disabled={!t.enabled}
+              className={`px-4 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+                tab === t.key
+                  ? "border-[var(--accent)] accent"
+                  : !t.enabled
+                  ? "border-transparent text-neutral-300 dark:text-neutral-600 cursor-not-allowed"
+                  : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+              }`}
+            >
+              {t.label}
+              {!t.enabled && processing && <Loader2 className="w-3 h-3 animate-spin inline ml-1.5" />}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Tab content */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
+      {/* Content */}
+      <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5" style={{ background: "var(--surface)" }}>
         {tab === "transcript" && hasTranscript && (
-          <TranscriptPanel
-            data={lecture.transcript!}
-            onTimestampClick={(t) => setSeekTime(t)}
-          />
+          <TranscriptPanel data={lecture.transcript!} onTimestampClick={(t) => setSeekTime(t)} />
         )}
-        {tab === "summary" && hasSummary && (
-          <SummaryPanel data={lecture.summary!} />
-        )}
-        {tab === "notes" && hasNotes && (
-          <NotesPanel data={lecture.notes!} />
-        )}
+        {tab === "summary" && hasSummary && <SummaryPanel data={lecture.summary!} />}
+        {tab === "notes" && hasNotes && <NotesPanel data={lecture.notes!} />}
         {!hasTranscript && (
-          <div className="flex flex-col items-center gap-4 py-12 text-center">
-            <FileText className="w-12 h-12 text-gray-300 dark:text-gray-700" />
-            <p className="text-gray-500 dark:text-gray-400">
-              No transcript available. The recording may not have captured any speech.
-            </p>
+          <div className="text-center py-12">
+            <p className="text-6xl mb-3">📝</p>
+            <p className="text-sm text-neutral-400">No transcript. The recording didn't capture any speech.</p>
           </div>
         )}
       </div>

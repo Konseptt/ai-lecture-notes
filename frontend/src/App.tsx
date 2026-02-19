@@ -1,17 +1,14 @@
 import { Routes, Route, NavLink, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { Mic, LayoutDashboard, Sun, Moon, GraduationCap } from "lucide-react";
+import { Sun, Moon } from "lucide-react";
 import LectureList from "./components/LectureList";
 import AudioRecorder from "./components/AudioRecorder";
 import LectureView from "./components/LectureView";
 
 export default function App() {
-  const [dark, setDark] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("theme") === "dark";
-    }
-    return false;
-  });
+  const [dark, setDark] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("theme") === "dark"
+  );
   const location = useLocation();
 
   useEffect(() => {
@@ -19,57 +16,75 @@ export default function App() {
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
 
-  const navLink = (to: string, icon: React.ReactNode, label: string) => (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${
-          isActive
-            ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/25"
-            : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-        }`
-      }
-    >
-      {icon}
-      <span className="hidden lg:inline">{label}</span>
-    </NavLink>
-  );
+  const isRecord = location.pathname === "/record";
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <aside className="w-16 lg:w-64 flex flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 lg:p-4 gap-2 shrink-0">
-        <div className="flex items-center gap-3 px-3 py-4 mb-4">
-          <GraduationCap className="w-8 h-8 text-indigo-600 shrink-0" />
-          <span className="hidden lg:inline text-lg font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-            LectureAI
-          </span>
-        </div>
+    <div className="min-h-screen">
+      {/* Top nav - simple, like a real app */}
+      <header className="sticky top-0 z-50 border-b border-neutral-200 dark:border-neutral-800" style={{ background: "var(--bg)" }}>
+        <div className="max-w-4xl mx-auto px-5 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            {/* Logo - just text, confident */}
+            <NavLink to="/" className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
+                <span className="text-white text-xs font-extrabold">L</span>
+              </div>
+              <span className="font-bold text-[15px] tracking-tight hidden sm:block">lectur.ai</span>
+            </NavLink>
 
-        <nav className="flex flex-col gap-1">
-          {navLink("/", <LayoutDashboard className="w-5 h-5 shrink-0" />, "Dashboard")}
-          {navLink("/record", <Mic className="w-5 h-5 shrink-0" />, "Record")}
-        </nav>
+            <nav className="flex items-center gap-1">
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) =>
+                  `px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
+                    isActive
+                      ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                      : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`
+                }
+              >
+                Library
+              </NavLink>
+              <NavLink
+                to="/record"
+                className={({ isActive }) =>
+                  `px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
+                    isActive
+                      ? "bg-accent-light text-[var(--accent)]"
+                      : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`
+                }
+              >
+                Record
+              </NavLink>
+            </nav>
+          </div>
 
-        <div className="mt-auto">
           <button
             onClick={() => setDark(!dark)}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all w-full"
+            className="w-8 h-8 rounded-md flex items-center justify-center text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           >
-            {dark ? <Sun className="w-5 h-5 shrink-0" /> : <Moon className="w-5 h-5 shrink-0" />}
-            <span className="hidden lg:inline">{dark ? "Light Mode" : "Dark Mode"}</span>
+            {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
         </div>
-      </aside>
+      </header>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto p-6 lg:p-8">
-          <Routes>
-            <Route path="/" element={<LectureList />} />
-            <Route path="/record" element={<AudioRecorder />} />
-            <Route path="/lecture/:id" element={<LectureView />} />
-          </Routes>
-        </div>
+      {/* Content */}
+      <main className="max-w-4xl mx-auto px-5 py-8">
+        <Routes>
+          <Route path="/" element={<LectureList />} />
+          <Route path="/record" element={<AudioRecorder />} />
+          <Route path="/lecture/:id" element={<LectureView />} />
+        </Routes>
       </main>
+
+      {/* Footer - tiny, human touch */}
+      <footer className="max-w-4xl mx-auto px-5 pb-8">
+        <p className="text-[11px] text-neutral-400 dark:text-neutral-600">
+          built for students who hate taking notes
+        </p>
+      </footer>
     </div>
   );
 }
