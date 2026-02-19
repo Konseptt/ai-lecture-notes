@@ -58,11 +58,6 @@ export default function AudioPlayer({ audioUrl, onTimeUpdate, seekTo }: Props) {
     audioRef.current.currentTime = ((e.clientX - rect.left) / rect.width) * duration;
   }
 
-  const token = localStorage.getItem("lecturai_token");
-  const srcUrl = audioUrl && token
-    ? `${audioUrl}${audioUrl.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
-    : audioUrl;
-
   if (!audioUrl) {
     return <div className="py-4 text-sm text-neutral-400 text-center">No audio available</div>;
   }
@@ -73,7 +68,7 @@ export default function AudioPlayer({ audioUrl, onTimeUpdate, seekTo }: Props) {
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4" style={{ background: "var(--surface)" }}>
       <audio
         ref={audioRef}
-        src={srcUrl}
+        src={audioUrl}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={() => {
           if (!audioRef.current) return;

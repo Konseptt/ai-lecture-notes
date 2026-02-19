@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Download } from "lucide-react";
 import { jsPDF } from "jspdf";
-import { getAudioUrl } from "../lib/api";
+import { getAudioBlob } from "../lib/storage";
 import type { Lecture } from "../lib/types";
 
 interface Props {
@@ -86,14 +86,11 @@ export default function ExportButton({ lecture }: Props) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  function downloadAudio() {
-    const token = localStorage.getItem("lecturai_token");
-    const url = getAudioUrl(lecture.id);
-    const fullUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
-    const a = document.createElement("a");
-    a.href = fullUrl;
-    a.download = `${sanitize(lecture.title)}.webm`;
-    a.click();
+  async function downloadAudio() {
+    const blob = await getAudioBlob(lecture.id);
+    if (blob) {
+      downloadBlob(blob, `${sanitize(lecture.title)}.webm`);
+    }
     setOpen(false);
   }
 
@@ -132,14 +129,10 @@ export default function ExportButton({ lecture }: Props) {
           <button onClick={() => { exportPDF(lecture); setOpen(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
             Full PDF
           </button>
-          {lecture.audioPath && (
-            <>
-              <hr className="my-1 border-neutral-100 dark:border-neutral-800" />
-              <button onClick={downloadAudio} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-                Audio
-              </button>
-            </>
-          )}
+          <hr className="my-1 border-neutral-100 dark:border-neutral-800" />
+          <button onClick={downloadAudio} className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+            Audio
+          </button>
         </div>
       )}
     </div>

@@ -86,21 +86,3 @@ export async function deleteLectureAPI(id: string): Promise<void> {
   }
 }
 
-export async function uploadAudio(lectureId: string, blob: Blob): Promise<void> {
-  const token = getToken();
-  const form = new FormData();
-  form.append("file", blob, `${lectureId}.webm`);
-  const res = await fetch(`${BASE}/audio/${lectureId}`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Upload failed");
-  }
-}
-
-export function getAudioUrl(lectureId: string): string {
-  return `${BASE}/audio/${lectureId}`;
-}

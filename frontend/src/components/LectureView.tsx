@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, FileText, Zap, BookOpen, Loader2, AlertCircle, Sparkles } from "lucide-react";
-import { fetchLecture, updateLectureAPI, summarizeTranscript, generateNotes, getAudioUrl } from "../lib/api";
+import { fetchLecture, updateLectureAPI, summarizeTranscript, generateNotes } from "../lib/api";
+import { getAudioBlob } from "../lib/storage";
 import type { Lecture } from "../lib/types";
 import AudioPlayer from "./AudioPlayer";
 import TranscriptPanel from "./TranscriptPanel";
@@ -19,12 +20,17 @@ export default function LectureView() {
   const [processing, setProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState("");
   const [seekTime, setSeekTime] = useState<number | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | undefined>();
   const [error, setError] = useState("");
   const processedRef = useRef(false);
 
   useEffect(() => {
     if (!id) return;
     fetchLecture(id).then((l) => setLecture(l)).catch(() => navigate("/"));
+    getAudioBlob(id).then((blob) => {
+      if (blob) setAudioUrl(URL.createObjectURL(blob));
+    });
+    return () => { if (audioUrl) URL.revokeObjectURL(audioUrl); };
   }, [id, navigate]);
 
   useEffect(() => {
@@ -125,7 +131,7 @@ export default function LectureView() {
 
       {/* Audio player */}
       <div className="mb-6">
-        <AudioPlayer audioUrl={lecture.audioPath ? getAudioUrl(lecture.id) : undefined} seekTo={seekTime} onTimeUpdate={() => {}} />
+        <AudioPlayer audioUrl={audioUrl} seekTo={seekTime} onTimeUpdate={() => {}} />
       </div>
 
       {/* Generate button */}

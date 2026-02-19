@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mic, Square, Pause, Play, Save, X, FileText, AlertTriangle } from "lucide-react";
-import { createLecture, uploadAudio } from "../lib/api";
+import { createLecture } from "../lib/api";
+import { saveAudioBlob } from "../lib/storage";
 import type { Lecture, TranscriptSegment } from "../lib/types";
 
 function formatTime(seconds: number): string {
@@ -304,7 +305,7 @@ export default function AudioRecorder() {
         status: "transcribed",
       });
 
-      await uploadAudio(lecture.id, audioBlob);
+      await saveAudioBlob(lecture.id, audioBlob);
       navigate(`/lecture/${lecture.id}`);
     } catch (err: any) {
       alert(err.message || "Failed to save recording");

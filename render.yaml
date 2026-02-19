@@ -12,23 +12,15 @@ services:
       cd frontend && npm install && npm run build &&
       cd ../backend && pip install -r requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
-    disk:
-      name: audio-storage
-      mountPath: /data/audio
-      sizeGB: 1
     envVars:
       - key: GITHUB_TOKEN
         sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: GOOGLE_CLIENT_ID
-        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: lecture-ai-db
           property: connectionString
-      - key: AUDIO_DIR
-        value: "/data/audio"
       - key: ENV
         value: "production"
       - key: PYTHON_VERSION
