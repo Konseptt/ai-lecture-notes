@@ -2,7 +2,7 @@ import uuid
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,9 @@ logger = logging.getLogger("lecture-api.lectures")
 router = APIRouter(prefix="/api/lectures", tags=["lectures"])
 
 
+VALID_STATUSES = {"recording", "transcribed", "summarizing", "generating_notes", "complete", "error"}
+
+
 class LectureCreate(BaseModel):
     title: str
     course: str = ""
@@ -22,6 +25,36 @@ class LectureCreate(BaseModel):
     tags: list[str] = []
     transcript: dict | None = None
     status: str = "transcribed"
+
+    @field_validator("title")
+    @classmethod
+    def check_title(cls, v: str) -> str:
+        v = v.strip()[:500]
+        if not v:
+            raise ValueError("Title is required")
+        return v
+
+    @field_validator("course")
+    @classmethod
+    def check_course(cls, v: str) -> str:
+        return v.strip()[:300]
+
+    @field_validator("tags")
+    @classmethod
+    def check_tags(cls, v: list[str]) -> list[str]:
+        return [t.strip()[:50] for t in v[:20] if t.strip()]
+
+    @field_validator("status")
+    @classmethod
+    def check_status(cls, v: str) -> str:
+        if v not in VALID_STATUSES:
+            raise ValueError(f"Invalid status: {v}")
+        return v
+
+    @field_validator("duration")
+    @classmethod
+    def check_duration(cls, v: int) -> int:
+        return max(0, min(v, 86400))
 
 
 class LectureUpdate(BaseModel):
@@ -33,7 +66,13 @@ class LectureUpdate(BaseModel):
     notes: dict | None = None
     status: str | None = None
     error_message: str | None = None
-    audio_path: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def check_status(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_STATUSES:
+            raise ValueError(f"Invalid status: {v}")
+        return v
 
 
 def _lecture_dict(lec: Lecture) -> dict:

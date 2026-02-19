@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { Loader2 } from "lucide-react";
+import GoogleSignInButton from "./GoogleSignInButton";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, googleLogin } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +21,19 @@ export default function LoginPage() {
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogle(credential: string) {
+    setError("");
+    setLoading(true);
+    try {
+      await googleLogin(credential);
+      navigate("/");
+    } catch (err: any) {
+      setError(err.message || "Google sign-in failed");
     } finally {
       setLoading(false);
     }
@@ -49,6 +63,7 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
             className="w-full px-4 py-2.5 border border-neutral-200 dark:border-neutral-800 rounded-lg bg-transparent text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
           <input
@@ -57,6 +72,7 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete="current-password"
             className="w-full px-4 py-2.5 border border-neutral-200 dark:border-neutral-800 rounded-lg bg-transparent text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
           <button
@@ -68,6 +84,8 @@ export default function LoginPage() {
             Sign in
           </button>
         </form>
+
+        <GoogleSignInButton onCredential={handleGoogle} />
 
         <p className="text-center text-sm text-neutral-500 mt-6">
           Don't have an account?{" "}

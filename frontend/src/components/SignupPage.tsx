@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { Loader2 } from "lucide-react";
+import GoogleSignInButton from "./GoogleSignInButton";
 
 export default function SignupPage() {
-  const { signup } = useAuth();
+  const { signup, googleLogin } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -15,8 +16,12 @@ export default function SignupPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+    if (/^\d+$/.test(password) || /^[a-zA-Z]+$/.test(password)) {
+      setError("Password must contain both letters and numbers");
       return;
     }
     setLoading(true);
@@ -25,6 +30,19 @@ export default function SignupPage() {
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Signup failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogle(credential: string) {
+    setError("");
+    setLoading(true);
+    try {
+      await googleLogin(credential);
+      navigate("/");
+    } catch (err: any) {
+      setError(err.message || "Google sign-in failed");
     } finally {
       setLoading(false);
     }
@@ -53,6 +71,7 @@ export default function SignupPage() {
             placeholder="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            autoComplete="name"
             className="w-full px-4 py-2.5 border border-neutral-200 dark:border-neutral-800 rounded-lg bg-transparent text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
           <input
@@ -61,14 +80,16 @@ export default function SignupPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
             className="w-full px-4 py-2.5 border border-neutral-200 dark:border-neutral-800 rounded-lg bg-transparent text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
           <input
             type="password"
-            placeholder="Password (min 6 characters)"
+            placeholder="Password (min 8 chars, letters + numbers)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete="new-password"
             className="w-full px-4 py-2.5 border border-neutral-200 dark:border-neutral-800 rounded-lg bg-transparent text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
           <button
@@ -80,6 +101,8 @@ export default function SignupPage() {
             Create account
           </button>
         </form>
+
+        <GoogleSignInButton onCredential={handleGoogle} />
 
         <p className="text-center text-sm text-neutral-500 mt-6">
           Already have an account?{" "}
