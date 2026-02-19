@@ -23,6 +23,7 @@ from models import User, Lecture
 from auth import get_current_user
 from routes.auth import router as auth_router
 from routes.lectures import router as lectures_router
+from routes.transcribe import router as transcribe_router
 
 load_dotenv()
 logger = logging.getLogger("lecture-api")
@@ -92,6 +93,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(lectures_router)
+app.include_router(transcribe_router)
 
 
 class TranscriptRequest(BaseModel):

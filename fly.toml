@@ -2,6 +2,8 @@ app = 'lecture-ai'
 primary_region = 'iad'
 
 [build]
+  [build.args]
+    VITE_GOOGLE_CLIENT_ID = "661822990201-mouqpcbpmnil186ns7tkosv4scgdvcd8.apps.googleusercontent.com"
 
 [http_service]
   internal_port = 8080

@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mic, Square, Pause, Play, Save, X, FileText, AlertTriangle } from "lucide-react";
+import { Mic, Square, Pause, Play, AlertTriangle } from "lucide-react";
 import { createLecture } from "../lib/api";
 import { saveAudioBlob } from "../lib/storage";
-import type { Lecture, TranscriptSegment } from "../lib/types";
+import { useAuth } from "../lib/auth";
+import type { TranscriptSegment } from "../lib/types";
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -16,8 +17,11 @@ function getSpeechRecognition(): (new () => SpeechRecognition) | null {
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
 }
 
+type TranscribeMode = "deepgram" | "browser" | "none";
+
 export default function AudioRecorder() {
   const navigate = useNavigate();
+  const { token } = useAuth();
   const [state, setState] = useState<"idle" | "recording" | "paused" | "stopped">("idle");
   const [elapsed, setElapsed] = useState(0);
   const [title, setTitle] = useState("");
@@ -26,6 +30,7 @@ export default function AudioRecorder() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [analyserData, setAnalyserData] = useState<Uint8Array>(new Uint8Array(64));
   const [saving, setSaving] = useState(false);
+  const [transcribeMode, setTranscribeMode] = useState<TranscribeMode>("none");
 
   const [liveText, setLiveText] = useState("");
   const [interimText, setInterimText] = useState("");
@@ -39,12 +44,18 @@ export default function AudioRecorder() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const liveTextRef = useRef("");
-  const segmentsRef = useRef<TranscriptSegment[]>([]);
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
   const isRecordingRef = useRef(false);
   const recordingStartTimeRef = useRef<number>(0);
+
+  // Deepgram WebSocket refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const dgInterimRef = useRef("");
+
+  // Web Speech API refs (fallback)
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const liveTextRef = useRef("");
+  const segmentsRef = useRef<TranscriptSegment[]>([]);
   const pendingInterimRef = useRef("");
 
   function getElapsedSeconds(): number {
@@ -52,16 +63,180 @@ export default function AudioRecorder() {
     return pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000;
   }
 
-  function commitText(raw: string) {
+  function commitText(raw: string, timestamp?: string) {
     const trimmed = raw.trim();
     if (!trimmed) return;
-    const timestamp = formatTime(getElapsedSeconds());
+    const ts = timestamp ?? formatTime(getElapsedSeconds());
     liveTextRef.current += (liveTextRef.current ? " " : "") + trimmed;
-    const newSeg: TranscriptSegment = { time: timestamp, text: trimmed };
+    const newSeg: TranscriptSegment = { time: ts, text: trimmed };
     segmentsRef.current = [...segmentsRef.current, newSeg];
     setLiveText(liveTextRef.current);
     setSegments(segmentsRef.current);
   }
+
+  // ── Deepgram WebSocket transcription ──
+
+  function connectDeepgram(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!token) {
+        resolve(false);
+        return;
+      }
+
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `${proto}//${window.location.host}/api/ws/transcribe?token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(url);
+      let resolved = false;
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          ws.close();
+          resolve(false);
+        }
+      }, 5000);
+
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+
+          if (msg.type === "ready" && !resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            wsRef.current = ws;
+            resolve(true);
+            return;
+          }
+
+          if (msg.type === "fallback" && !resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            resolve(false);
+            return;
+          }
+
+          if (msg.type === "transcript") {
+            const { text, is_final, start } = msg;
+            if (is_final) {
+              const ts = formatTime(start ?? getElapsedSeconds());
+              commitText(text, ts);
+              dgInterimRef.current = "";
+              setInterimText("");
+            } else {
+              dgInterimRef.current = text;
+              setInterimText(text);
+            }
+          }
+
+          if (msg.type === "error" && !resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            resolve(false);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      };
+
+      ws.onclose = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(false);
+        }
+        wsRef.current = null;
+      };
+    });
+  }
+
+  function closeDeepgram() {
+    if (dgInterimRef.current.trim()) {
+      commitText(dgInterimRef.current);
+      dgInterimRef.current = "";
+      setInterimText("");
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+  }
+
+  // ── Web Speech API fallback ──
+
+  function startSpeechRecognition() {
+    const SR = getSpeechRecognition();
+    if (!SR) return;
+
+    const recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      let finalChunk = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0].transcript;
+        if (result.isFinal) finalChunk += text;
+        else interim += text;
+      }
+      if (finalChunk) {
+        commitText(finalChunk);
+        pendingInterimRef.current = "";
+      }
+      pendingInterimRef.current = interim;
+      setInterimText(interim);
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === "no-speech" || event.error === "aborted") return;
+      console.warn("Speech recognition error:", event.error);
+    };
+
+    recognition.onend = () => {
+      if (pendingInterimRef.current.trim()) {
+        commitText(pendingInterimRef.current);
+        pendingInterimRef.current = "";
+        setInterimText("");
+      }
+      if (isRecordingRef.current && recognitionRef.current) {
+        try { recognition.start(); } catch {}
+      }
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      console.warn("Could not start speech recognition:", err);
+    }
+  }
+
+  function stopSpeechRecognition() {
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
+      recognitionRef.current.onresult = null;
+      try { recognitionRef.current.stop(); } catch {}
+      recognitionRef.current = null;
+    }
+    if (pendingInterimRef.current.trim()) {
+      commitText(pendingInterimRef.current);
+      pendingInterimRef.current = "";
+    }
+    setInterimText("");
+  }
+
+  // ── Analyser ──
 
   const updateAnalyser = useCallback(() => {
     if (analyserRef.current && isRecordingRef.current) {
@@ -81,9 +256,8 @@ export default function AudioRecorder() {
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      closeDeepgram();
       stopSpeechRecognition();
     };
   }, []);
@@ -94,79 +268,7 @@ export default function AudioRecorder() {
     }
   }, [liveText, interimText]);
 
-  function startSpeechRecognition() {
-    const SR = getSpeechRecognition();
-    if (!SR) return;
-
-    const recognition = new SR();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event: any) => {
-      let interim = "";
-      let finalChunk = "";
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0].transcript;
-        if (result.isFinal) {
-          finalChunk += text;
-        } else {
-          interim += text;
-        }
-      }
-
-      if (finalChunk) {
-        commitText(finalChunk);
-        pendingInterimRef.current = "";
-      }
-
-      pendingInterimRef.current = interim;
-      setInterimText(interim);
-    };
-
-    recognition.onerror = (event: any) => {
-      if (event.error === "no-speech" || event.error === "aborted") return;
-      console.warn("Speech recognition error:", event.error);
-    };
-
-    recognition.onend = () => {
-      // When the session ends, any unfinalized interim text would be lost.
-      // Commit it as a segment before restarting.
-      if (pendingInterimRef.current.trim()) {
-        commitText(pendingInterimRef.current);
-        pendingInterimRef.current = "";
-        setInterimText("");
-      }
-
-      if (isRecordingRef.current && recognitionRef.current) {
-        try {
-          recognition.start();
-        } catch {}
-      }
-    };
-
-    try {
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (err) {
-      console.warn("Could not start speech recognition:", err);
-    }
-  }
-
-  function stopSpeechRecognition() {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null;
-      recognitionRef.current.onresult = null;
-      try {
-        recognitionRef.current.stop();
-      } catch {}
-      recognitionRef.current = null;
-    }
-    setInterimText("");
-  }
+  // ── Recording controls ──
 
   async function startRecording() {
     try {
@@ -194,22 +296,10 @@ export default function AudioRecorder() {
       });
       audioChunks.current = [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunks.current.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunks.current, { type: recorder.mimeType });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((t) => t.stop());
-      };
-
-      recorder.start(1000);
-      mediaRecorder.current = recorder;
-
       liveTextRef.current = "";
       segmentsRef.current = [];
       pendingInterimRef.current = "";
+      dgInterimRef.current = "";
       setLiveText("");
       setInterimText("");
       setSegments([]);
@@ -225,8 +315,37 @@ export default function AudioRecorder() {
         setElapsed(pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000);
       }, 200);
 
-      startSpeechRecognition();
-    } catch (err) {
+      const deepgramOk = await connectDeepgram();
+
+      if (deepgramOk) {
+        setTranscribeMode("deepgram");
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunks.current.push(e.data);
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(e.data);
+            }
+          }
+        };
+        recorder.start(250);
+      } else {
+        const hasBrowser = !!getSpeechRecognition();
+        setTranscribeMode(hasBrowser ? "browser" : "none");
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.current.push(e.data);
+        };
+        recorder.start(1000);
+        if (hasBrowser) startSpeechRecognition();
+      }
+
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunks.current, { type: recorder.mimeType });
+        setAudioBlob(blob);
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
+      mediaRecorder.current = recorder;
+    } catch {
       alert("Microphone access denied. Please allow microphone access to record.");
     }
   }
@@ -239,11 +358,16 @@ export default function AudioRecorder() {
       isRecordingRef.current = false;
       setState("paused");
       setAnalyserData(new Uint8Array(64));
-      stopSpeechRecognition();
+
+      if (transcribeMode === "deepgram") {
+        closeDeepgram();
+      } else {
+        stopSpeechRecognition();
+      }
     }
   }
 
-  function resumeRecording() {
+  async function resumeRecording() {
     if (mediaRecorder.current?.state === "paused") {
       mediaRecorder.current.resume();
       startTimeRef.current = Date.now();
@@ -254,7 +378,24 @@ export default function AudioRecorder() {
         setElapsed(pausedElapsed.current + (Date.now() - startTimeRef.current) / 1000);
       }, 200);
 
-      startSpeechRecognition();
+      if (transcribeMode === "deepgram") {
+        const ok = await connectDeepgram();
+        if (ok) {
+          mediaRecorder.current.ondataavailable = (e: BlobEvent) => {
+            if (e.data.size > 0) {
+              audioChunks.current.push(e.data);
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(e.data);
+              }
+            }
+          };
+        } else {
+          setTranscribeMode(getSpeechRecognition() ? "browser" : "none");
+          if (getSpeechRecognition()) startSpeechRecognition();
+        }
+      } else if (transcribeMode === "browser") {
+        startSpeechRecognition();
+      }
     }
   }
 
@@ -265,7 +406,12 @@ export default function AudioRecorder() {
       isRecordingRef.current = false;
       setState("stopped");
       setAnalyserData(new Uint8Array(64));
-      stopSpeechRecognition();
+
+      if (transcribeMode === "deepgram") {
+        closeDeepgram();
+      } else {
+        stopSpeechRecognition();
+      }
     }
   }
 
@@ -276,9 +422,11 @@ export default function AudioRecorder() {
     setTitle("");
     setCourse("");
     setTags("");
+    setTranscribeMode("none");
     liveTextRef.current = "";
     segmentsRef.current = [];
     pendingInterimRef.current = "";
+    dgInterimRef.current = "";
     setLiveText("");
     setInterimText("");
     setSegments([]);
@@ -287,24 +435,19 @@ export default function AudioRecorder() {
   async function saveRecording() {
     if (!audioBlob) return;
     setSaving(true);
-
     try {
       const lecture = await createLecture({
         title: title.trim() || `Lecture ${new Date().toLocaleDateString()}`,
         course: course.trim(),
         date: new Date().toISOString(),
         duration: Math.round(elapsed),
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
         transcript: {
           transcript: liveText,
           segments: segmentsRef.current,
         },
         status: "transcribed",
       });
-
       await saveAudioBlob(lecture.id, audioBlob);
       navigate(`/lecture/${lecture.id}`);
     } catch (err: any) {
@@ -319,12 +462,14 @@ export default function AudioRecorder() {
     const idx = Math.floor((i / barCount) * analyserData.length);
     return analyserData[idx] / 255;
   });
-  const hasSpeechAPI = !!getSpeechRecognition();
   const isActive = state === "recording";
+
+  const modeLabel =
+    transcribeMode === "deepgram" ? "deepgram" :
+    transcribeMode === "browser" ? "browser speech" : null;
 
   return (
     <div>
-      {/* Two-column when recording: left = controls, right = transcript */}
       <div className="mb-6">
         <h1 className="text-3xl font-extrabold tracking-tight">Record</h1>
         <p className="text-sm text-neutral-500 mt-1">
@@ -335,17 +480,18 @@ export default function AudioRecorder() {
         </p>
       </div>
 
-      {!hasSpeechAPI && state === "idle" && (
-        <div className="mb-6 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          ⚠️ Live transcription needs Chrome or Edge. Audio still records in other browsers.
+      {state === "idle" && transcribeMode === "none" && (
+        <div className="mb-6 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            No Deepgram API key configured. Falling back to browser speech recognition (Chrome/Edge only, less accurate).
+          </span>
         </div>
       )}
 
       <div className={`${state !== "idle" && state !== "stopped" ? "grid grid-cols-1 lg:grid-cols-5 gap-6" : ""}`}>
-        {/* Left: Recording controls */}
         <div className={state !== "idle" && state !== "stopped" ? "lg:col-span-2" : ""}>
           <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 flex flex-col items-center gap-5" style={{ background: "var(--surface)" }}>
-            {/* Big record button */}
             {state === "idle" ? (
               <button
                 onClick={startRecording}
@@ -355,7 +501,6 @@ export default function AudioRecorder() {
               </button>
             ) : (
               <>
-                {/* Waveform */}
                 <div className="flex items-center justify-center gap-[3px] h-16 w-full">
                   {bars.map((v, i) => (
                     <div
@@ -364,21 +509,17 @@ export default function AudioRecorder() {
                       style={{
                         width: "3px",
                         height: `${Math.max(8, v * 100)}%`,
-                        background: isActive
-                          ? `var(--accent)`
-                          : "rgb(212 212 212 / 0.4)",
+                        background: isActive ? "var(--accent)" : "rgb(212 212 212 / 0.4)",
                         opacity: isActive ? 0.4 + v * 0.6 : 0.3,
                       }}
                     />
                   ))}
                 </div>
 
-                {/* Timer */}
                 <div className="font-mono text-4xl font-bold tabular-nums tracking-wider">
                   {formatTime(elapsed)}
                 </div>
 
-                {/* Status dot */}
                 {isActive && (
                   <div className="flex items-center gap-2 text-xs text-neutral-500">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
@@ -391,7 +532,6 @@ export default function AudioRecorder() {
               </>
             )}
 
-            {/* Control buttons */}
             {state === "idle" && (
               <p className="text-xs text-neutral-400">tap to start</p>
             )}
@@ -418,20 +558,26 @@ export default function AudioRecorder() {
           </div>
         </div>
 
-        {/* Right: Live transcript (only while recording/paused) */}
         {state !== "idle" && state !== "stopped" && (
           <div className="lg:col-span-3 border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden flex flex-col" style={{ background: "var(--surface)" }}>
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800">
               <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Transcript</span>
-              {isActive && (
-                <span className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  live
-                </span>
-              )}
-              {segments.length > 0 && !isActive && (
-                <span className="text-[11px] text-neutral-400">{segments.length} segments</span>
-              )}
+              <div className="flex items-center gap-3">
+                {modeLabel && (
+                  <span className="text-[10px] font-mono text-neutral-400 bg-neutral-100 dark:bg-neutral-800 rounded px-1.5 py-0.5">
+                    {modeLabel}
+                  </span>
+                )}
+                {isActive && (
+                  <span className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    live
+                  </span>
+                )}
+                {segments.length > 0 && !isActive && (
+                  <span className="text-[11px] text-neutral-400">{segments.length} segments</span>
+                )}
+              </div>
             </div>
             <div
               ref={transcriptBoxRef}
@@ -466,7 +612,6 @@ export default function AudioRecorder() {
         )}
       </div>
 
-      {/* Save form - shows after stopping */}
       {state === "stopped" && audioBlob && (
         <div className="mt-6 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5" style={{ background: "var(--surface)" }}>
           <div className="flex items-start justify-between mb-4">
